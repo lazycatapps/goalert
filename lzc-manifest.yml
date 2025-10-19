@@ -1,0 +1,143 @@
+# app 的唯一 id,上架到商店需要保证不要冲突,尽量使用开发者自己的域名作为后缀
+package: cloud.lazycat.app.liu.goalert
+# app 的版本
+version: 0.34.1
+
+name: GoAlert
+keywords: on-call,alerting,incident,notification,escalation,scheduling
+description: GoAlert on-call management and alert routing service
+
+# 软件名称,会显示在启动器之类的地方
+locales:
+  zh:
+    name: GoAlert 值班通知
+    description: |
+      ## GoAlert 值班通知平台
+
+      GoAlert 是 Target 开源的值班管理与告警路由平台，可自动通知值班人员、支持灵活的升级策略、排班管理与多渠道通知。GoAlert 已成功处理超过 150 万次告警，是企业级可靠的值班解决方案。
+
+      ### 核心功能
+
+      - **智能告警路由**：自动将告警发送给正确的值班人员
+      - **灵活排班管理**：支持轮班、值班覆盖和手动调整
+      - **自动升级策略**：确保每个告警都能被处理，未响应时自动升级
+      - **多渠道通知**：支持短信、语音、邮件、Slack 等多种通知方式
+      - **移动端友好**：可通过短信简单回复确认或关闭告警
+      - **心跳监控**：定期检查服务状态，异常时自动告警
+
+      ## 使用说明
+
+      1. 启动应用后点击桌面图标访问 GoAlert Web 控制台
+      2. 使用默认管理员账号登录（用户名：admin，密码：admin123）
+      3. 进入 Settings > Users 配置团队成员信息与联系方式
+      4. 在 Schedules 中创建值班日程，设置轮班周期和交接时间
+      5. 在 Escalation Policies 中定义告警升级策略（如 5 分钟未响应升级给主管）
+      6. 在 Services 中创建服务并绑定告警来源（支持 Webhook、Email 等）
+      7. 测试告警流程，确认通知能够正常发送
+
+      **重要提示**：首次登录后请立即修改默认管理员密码，并配置数据加密密钥（GOALERT_DATA_ENCRYPTION_KEY）。
+
+      ## 相关链接
+
+      **官方网站：** https://goalert.me/
+      **仓库地址：** https://github.com/lazycatapps/goalert.git
+
+  en:
+    name: GoAlert
+    description: |
+      ## GoAlert On-call Management
+
+      GoAlert is an open source on-call management and alert routing platform from Target. It provides automated notifications, escalation policies, schedule management, and multi-channel alerts. GoAlert has successfully processed over 1.5 million alerts, making it a proven enterprise-grade on-call solution.
+
+      ### Key Features
+
+      - **Smart Alert Routing**: Automatically engage the right person at the right time
+      - **Flexible Scheduling**: Support rotations, overrides, and manual adjustments
+      - **Automated Escalations**: Ensure every alert is handled with automatic escalation
+      - **Multi-channel Notifications**: SMS, voice calls, email, Slack, and more
+      - **Mobile-Friendly**: Acknowledge or close alerts via simple SMS replies
+      - **Heartbeat Monitoring**: Periodic health checks with automatic alerting
+
+      ## Usage Guide
+
+      1. Launch the application and open the GoAlert web console from the desktop shortcut
+      2. Sign in with the default admin account (username: admin, password: admin123)
+      3. Configure team members and contact methods under Settings > Users
+      4. Create on-call schedules in Schedules, define shift duration and handover time
+      5. Set up escalation policies in Escalation Policies (e.g., escalate after 5 minutes)
+      6. Create services in Services and connect your monitoring sources (Webhook, Email, etc.)
+      7. Test alert flow and verify notification delivery
+
+      **Important**: Please change the default admin password after first login and configure a secure data encryption key (GOALERT_DATA_ENCRYPTION_KEY).
+
+      ## References
+
+      **Official Site:** https://goalert.me/
+      **Repository:** https://github.com/lazycatapps/goalert.git
+
+# 软件本身的 license
+license: https://github.com/target/goalert?tab=Apache-2.0-1-ov-file#readme
+
+# 软件的主页,会在商店等地方体现
+homepage: https://github.com/target/goalert
+
+# lpk 的作者,会在商店等地方体现
+author: liu
+
+# application 作为一个特殊的 container 运行，对应的 service 名称为固定的`app`， 其他 service 可以通过此名称与 app 进行通讯
+application:
+  # 是否存在后台任务， 若存在则系统不会对此 app 进行主动休眠等操作
+  background_task: true
+
+  # 期望的 app 域名，如果系统中已经有对应域名则会提示用户选择其他域名。 最终 app 分配到的域名以/lzcapp/run/app.subdomain 为准
+  subdomain: goalert
+
+  routes:
+    - /=http://goalert:8081
+
+  public_path:
+    - /                         # 无需登录即可访问
+
+  depends_on:
+    - goalert
+
+  # 是否启用多实例
+  multi_instance: false
+
+services:
+  postgres:
+    # lzc-cli appstore copy-image postgres:17-alpine
+    image: registry.lazycat.cloud/liu/library/postgres:4d760442b8913593
+    environment:
+      - POSTGRES_DB=goalert
+      - POSTGRES_USER=goalert
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    binds:
+      - /lzcapp/var/data:/var/lib/postgresql/data
+    health_check:
+      test:
+        - CMD-SHELL
+        - pg_isready -U goalert
+
+  goalert:
+    # lzc-cli appstore copy-image goalert/goalert:latest
+    image: registry.lazycat.cloud/liu/goalert/goalert:f27c7e2315a8a5e8
+    environment:
+      - GOALERT_DB_URL=postgres://goalert@postgres/goalert?sslmode=disable
+      - GOALERT_DATA_ENCRYPTION_KEY=please-change-me-super-secret-key
+      - GOALERT_PUBLIC_URL=https://${LAZYCAT_APP_DOMAIN}
+      - GOALERT_USERNAME=admin
+      - GOALERT_PASSWORD=admin123
+    depends_on:
+      - postgres
+
+    setup_script: |
+      # set -e  # Exit immediately if a command exits with a non-zero status
+      set -u  # Treat unset variables as an error
+
+      if goalert add-user \
+           --admin --user ${GOALERT_USERNAME} --email admin@example.com --pass ${GOALERT_PASSWORD} 2>/dev/null ; then
+        echo "${GOALERT_USERNAME} 创建成功"
+      else
+        echo "${GOALERT_USERNAME} 已存在，跳过创建"
+      fi
