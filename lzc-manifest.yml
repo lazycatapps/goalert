@@ -7,6 +7,12 @@ name: GoAlert
 keywords: on-call,alerting,incident,notification,escalation,scheduling
 description: GoAlert on-call management and alert routing service
 
+usage: |                                  # 使用须知 (首次访问时渲染,支持多行)
+  程序在初始化时会创建一个默认的管理员账号，用户名：admin，密码：admin123
+  首次登录后请务必修改默认密码。
+
+  如果遇到该用户长时间登录不成功的问题，请完全重启应用以确保管理员用户创建成功。
+
 # 软件名称,会显示在启动器之类的地方
 locales:
   zh:
@@ -126,18 +132,70 @@ services:
       - GOALERT_DB_URL=postgres://goalert@postgres/goalert?sslmode=disable
       - GOALERT_DATA_ENCRYPTION_KEY=please-change-me-super-secret-key
       - GOALERT_PUBLIC_URL=https://${LAZYCAT_APP_DOMAIN}
+    depends_on:
+      - postgres
+    # 健康检测 (开发阶段可设 disable)
+    health_check:
+      test_url: http://127.0.0.1:8081         # HTTP URL 检测 (application 专用)
+      start_period: 30s                       # 启动等待时间
+      disable: false                          # 禁用健康检测
+
+  registry:
+    # lzc-cli appstore copy-image goalert/goalert:latest
+    image: registry.lazycat.cloud/liu/goalert/goalert:f27c7e2315a8a5e8
+    restart: nerver
+    environment:
+      - GOALERT_DB_URL=postgres://goalert@postgres/goalert?sslmode=disable
       - GOALERT_USERNAME=admin
       - GOALERT_PASSWORD=admin123
     depends_on:
-      - postgres
+      - goalert
 
     setup_script: |
-      # set -e  # Exit immediately if a command exits with a non-zero status
-      set -u  # Treat unset variables as an error
+      set -eu  # Treat unset variables as an error and exit on error
 
-      if goalert add-user \
-           --admin --user ${GOALERT_USERNAME} --email admin@example.com --pass ${GOALERT_PASSWORD} 2>/dev/null ; then
-        echo "${GOALERT_USERNAME} 创建成功"
-      else
-        echo "${GOALERT_USERNAME} 已存在，跳过创建"
-      fi
+      # Wait for GoAlert service to be ready
+      echo "Waiting for GoAlert service to start..."
+      for i in $(seq 1 30); do
+        if wget -q --spider http://goalert:8081/health 2>/dev/null; then
+          echo "GoAlert service is ready"
+          break
+        fi
+        echo "Waiting for GoAlert service... ($i/30)"
+        sleep 2
+      done
+
+      # Create admin user
+      echo "Starting admin user creation: ${GOALERT_USERNAME}"
+
+      for i in $(seq 1 30); do
+        echo "[Attempt $i/30] Creating user..."
+
+        if goalert add-user --admin \
+            --user "${GOALERT_USERNAME}" \
+            --email admin@example.com \
+            --pass "${GOALERT_PASSWORD}" > /tmp/goalert_user_create.log 2>&1; then
+          echo "User ${GOALERT_USERNAME} created successfully"
+          cat /tmp/goalert_user_create.log
+          sleep infinity
+        fi
+
+        # Check if failure is due to existing user
+        if grep -qi "duplicate\|already exists\|constraint" /tmp/goalert_user_create.log; then
+          echo "User ${GOALERT_USERNAME} already exists, skipping creation"
+          cat /tmp/goalert_user_create.log
+          sleep infinity
+        fi
+
+        # Other errors, show logs and retry
+        echo "Creation failed, error log:"
+        cat /tmp/goalert_user_create.log
+
+        # Exponential backoff: 2, 4, 8 seconds (max 8 seconds)
+        sleep_time=$((2 ** (i < 3 ? i : 3)))
+        echo "Waiting ${sleep_time} seconds before retry..."
+        sleep "${sleep_time}"
+      done
+
+      echo "Failed to create user after multiple attempts, exiting!"
+      exit 1
