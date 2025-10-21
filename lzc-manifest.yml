@@ -1,7 +1,7 @@
 # app 的唯一 id,上架到商店需要保证不要冲突,尽量使用开发者自己的域名作为后缀
 package: cloud.lazycat.app.liu.goalert
 # app 的版本
-version: 0.34.1
+version: 0.34.1-2
 
 name: GoAlert
 keywords: on-call,alerting,incident,notification,escalation,scheduling
@@ -109,6 +109,12 @@ application:
   depends_on:
     - goalert
 
+  # 健康检测 (开发阶段可设 disable)
+  health_check:
+    test_url: http://goalert:8081/health    # HTTP URL 检测 (application 专用)
+    start_period: 120s                       # 启动等待时间
+    disable: false                          # 禁用健康检测
+
   # 是否启用多实例
   multi_instance: false
 
@@ -138,8 +144,8 @@ services:
       - postgres
     # 健康检测 (开发阶段可设 disable)
     health_check:
-      test_url: http://127.0.0.1:8081         # HTTP URL 检测 (application 专用)
-      start_period: 30s                       # 启动等待时间
+      test_url: http://127.0.0.1:8081/health  # HTTP URL 检测 (application 专用)
+      start_period: 120s                       # 启动等待时间
       disable: false                          # 禁用健康检测
 
   registry:
@@ -158,20 +164,20 @@ services:
 
       # Wait for GoAlert service to be ready
       echo "Waiting for GoAlert service to start..."
-      for i in $(seq 1 30); do
+      for i in $(seq 1 120); do
         if wget -q --spider http://goalert:8081/health 2>/dev/null; then
           echo "GoAlert service is ready"
           break
         fi
-        echo "Waiting for GoAlert service... ($i/30)"
+        echo "Waiting for GoAlert service... ($i/120)"
         sleep 2
       done
 
       # Create admin user
       echo "Starting admin user creation: ${GOALERT_USERNAME}"
 
-      for i in $(seq 1 30); do
-        echo "[Attempt $i/30] Creating user..."
+      for i in $(seq 1 120); do
+        echo "[Attempt $i/120] Creating user..."
 
         if goalert add-user --admin \
             --user "${GOALERT_USERNAME}" \
